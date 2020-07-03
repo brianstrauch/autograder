@@ -111,8 +111,6 @@ func (a *Autograder) manageJobs() {
 
 	for _ = range time.NewTicker(time.Second).C {
 		for id, job := range a.runningJobs {
-			log.Println(id, job.State)
-
 			switch job.State {
 			case "READY":
 				job.State = "RUNNING"
