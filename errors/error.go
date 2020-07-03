@@ -1,4 +1,4 @@
-package main
+package errors
 
 import (
 	"encoding/json"
@@ -12,6 +12,14 @@ type Error struct {
 	Err     error  `json:"error,omitempty"`
 }
 
+func NewInternalError(err error) *Error {
+	return &Error{
+		Code:    http.StatusInternalServerError,
+		Message: "Internal Error",
+		Err:     err,
+	}
+}
+
 type ErrorHandler func(w http.ResponseWriter, r *http.Request) *Error
 
 func (h ErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -21,13 +29,5 @@ func (h ErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(err); err != nil {
 			log.Println(err)
 		}
-	}
-}
-
-func NewInternalError(err error) *Error {
-	return &Error{
-		Code:    http.StatusInternalServerError,
-		Message: "Internal Error",
-		Err:     err,
 	}
 }

@@ -1,4 +1,4 @@
-module autograder
+module github.com/brianstrauch/autograder
 
 go 1.14
 

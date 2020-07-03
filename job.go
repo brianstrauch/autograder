@@ -97,7 +97,6 @@ func (j *Job) run(docker *client.Client) {
 		j.fail(err)
 		return
 	}
-
 	j.Stdout = stdout.String()
 	j.Stderr = stderr.String()
 
