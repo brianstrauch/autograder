@@ -10,13 +10,14 @@ The autograder will run them inside a container and grade their output.
             <input name="problem" />
             <input name="language" />
             <input name="file" type="file" />
+            
             <input type="submit" />
         </form>
         ```
     2. `POST /text` (json)
         ```
         {
-            "problem": 0,
+            "problem": "hello-world",
             "language": "python",
             "text": "print('Hello, World!')"
         }
