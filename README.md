@@ -24,11 +24,11 @@ The autograder will run them inside a container and grade their output.
         ```
 2. Check the status of a program
     1. `GET /job?id=0`
-    ```
-    {
-        "id": 0,
-        "status": "RIGHT",
-        "stdout": "Hello, World!\n",
-        "stderr": ""
-    }
-    ```
+        ```
+        {
+            "id": 0,
+            "status": "RIGHT",
+            "stdout": "Hello, World!\n",
+            "stderr": ""
+        }
+        ```
