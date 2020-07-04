@@ -1,40 +1,36 @@
-package main
+package pkg
 
 import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
-	"mime/multipart"
+	"path/filepath"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
-const language = "python"
-const filename = "main.py"
+const filename = "program"
 
 type Job struct {
 	ID     int    `json:"id"`
-	State  string `json:"state"`
+	Status string `json:"status"`
 	Stdout string `json:"stdout"`
 	Stderr string `json:"stderr"`
 
-	program     io.Reader
+	upload      *Upload
 	containerID string
 }
 
-func NewJob(id int, file multipart.File) *Job {
+func NewJob(id int, upload *Upload) *Job {
 	return &Job{
-		ID:      id,
-		State:   "READY",
-		program: file,
+		ID:     id,
+		Status: "READY",
+		upload: upload,
 	}
 }
 
@@ -45,8 +41,8 @@ func (j *Job) run(docker *client.Client) {
 	con, err := docker.ContainerCreate(
 		ctx,
 		&container.Config{
-			Image: language,
-			Cmd:   []string{language, filename},
+			Image: j.upload.Language,
+			Cmd:   []string{j.upload.Language, filename},
 		}, nil, nil, "")
 	if err != nil {
 		j.fail(err)
@@ -58,13 +54,7 @@ func (j *Job) run(docker *client.Client) {
 	var buf bytes.Buffer
 	w := tar.NewWriter(&buf)
 
-	data, err := ioutil.ReadAll(j.program)
-	if err != nil {
-		j.fail(err)
-		return
-	}
-
-	if err := writeTAR(w, filename, data); err != nil {
+	if err := writeTAR(w, filename, []byte(j.upload.Text)); err != nil {
 		j.fail(err)
 		return
 	}
@@ -105,27 +95,28 @@ func (j *Job) run(docker *client.Client) {
 
 func (j *Job) fail(err error) {
 	log.Printf("JOB %d FAILED: %s\n", j.ID, err)
-	j.State = "ERROR"
+	j.Status = "ERROR"
 }
 
 // Check if output matches the solution file.
 func (j *Job) grade() {
 	if j.Stderr != "" {
-		j.State = "ERROR"
+		j.Status = "ERROR"
 		return
 	}
 
-	ans := "4\n"
-
-	if j.Stdout == ans {
-		j.State = "RIGHT"
+	file := filepath.Join("problems", j.upload.Problem, "output.txt")
+	out, err := ioutil.ReadFile(file)
+	if err != nil {
+		j.fail(err)
 		return
 	}
 
-	j.State = "WRONG"
-	dmp := diffmatchpatch.New()
-	diffs := dmp.DiffMain(j.Stdout, ans, false)
-	fmt.Println(dmp.DiffPrettyText(diffs))
+	if j.Stdout == string(out) {
+		j.Status = "RIGHT"
+	} else {
+		j.Status = "WRONG"
+	}
 }
 
 func (j *Job) cleanup(docker *client.Client) {
