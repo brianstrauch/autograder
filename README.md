@@ -1,7 +1,14 @@
 # Autograder API
 
-Upload programs for grading in file or data format.
-The autograder will run them inside a container and grade their output.
+Upload programs for grading. The autograder will run them inside a container and grade their output.
+
+## Local Setup
+
+1. Download and install Docker from https://www.docker.com/products/docker-desktop.
+2. Start Docker.
+3. Use `make run` to start the API on http://localhost:1024.
+
+## Usage
 
 1. Upload a program
     1. `POST /file` (multipart/form-data)

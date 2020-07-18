@@ -1,14 +1,15 @@
-package pkg
+package main
 
 import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
-	"github.com/brianstrauch/autograder/internal/errors"
 	"github.com/docker/docker/client"
 )
 
@@ -30,14 +31,14 @@ func NewAutograder() *Autograder {
 }
 
 // Upload a program file, create a job, and add to queue.
-func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *errors.Error {
+func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *APIError {
 	if err := r.ParseForm(); err != nil {
-		return errors.NewInternalError(err)
+		return NewInternalError(err)
 	}
 
 	problem := r.FormValue("problem")
 	if problem == "" {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: "No problem provided.",
 		}
@@ -45,7 +46,7 @@ func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 
 	language := r.FormValue("language")
 	if language == "" {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: "No language provided.",
 		}
@@ -53,7 +54,7 @@ func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: "Please upload a program.",
 			Err:     err,
@@ -62,7 +63,7 @@ func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 
 	const fileSizeLimit = 1024
 	if header.Size > fileSizeLimit {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: "File is larger than 1MB.",
 		}
@@ -70,7 +71,7 @@ func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
-		return errors.NewInternalError(err)
+		return NewInternalError(err)
 	}
 
 	upload := &Upload{
@@ -79,37 +80,41 @@ func (a *Autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 		Text:     string(data),
 	}
 
-	job := a.queueJob(upload)
+	job, apiErr := a.queueJob(upload)
+	if apiErr != nil {
+		return apiErr
+	}
 
 	if err := json.NewEncoder(w).Encode(job); err != nil {
-		return errors.NewInternalError(err)
+		return NewInternalError(err)
 	}
 
 	return nil
 }
 
-func (a *Autograder) UploadProgramText(w http.ResponseWriter, r *http.Request) *errors.Error {
+func (a *Autograder) UploadProgramText(w http.ResponseWriter, r *http.Request) *APIError {
 	upload := new(Upload)
-	err := json.NewDecoder(r.Body).Decode(&upload)
-	if err != nil {
-		fmt.Println("Here")
-		return errors.NewInternalError(err)
+	if err := json.NewDecoder(r.Body).Decode(&upload); err != nil {
+		return NewInternalError(err)
 	}
 
-	job := a.queueJob(upload)
+	job, apiErr := a.queueJob(upload)
+	if apiErr != nil {
+		return apiErr
+	}
 
 	if err := json.NewEncoder(w).Encode(job); err != nil {
-		return errors.NewInternalError(err)
+		return NewInternalError(err)
 	}
 
 	return nil
 }
 
 // Get a running job from its ID.
-func (a *Autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.Error {
+func (a *Autograder) GetJob(w http.ResponseWriter, r *http.Request) *APIError {
 	val := r.URL.Query().Get("id")
 	if val == "" {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: "No ID provided.",
 		}
@@ -117,7 +122,7 @@ func (a *Autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.Erro
 
 	id, err := strconv.Atoi(val)
 	if err != nil {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: "ID must be an integer.",
 			Err:     err,
@@ -125,14 +130,14 @@ func (a *Autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.Erro
 	}
 
 	if id < 0 || id >= len(a.Jobs) {
-		return &errors.Error{
+		return &APIError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("Job %d does not exist.", id),
 		}
 	}
 
 	if err := json.NewEncoder(w).Encode(a.Jobs[id]); err != nil {
-		return errors.NewInternalError(err)
+		return NewInternalError(err)
 	}
 
 	return nil
@@ -160,12 +165,46 @@ func (a *Autograder) ManageJobs() {
 	}
 }
 
-func (a *Autograder) queueJob(upload *Upload) *Job {
+func (a *Autograder) queueJob(upload *Upload) (*Job, *APIError) {
+	dir := os.Getenv("PROBLEMS_DIR")
+	if dir == "" {
+		return nil, NewInternalError(fmt.Errorf(problemsDirErr))
+	}
+
+	if upload.Problem == "" {
+		return nil, &APIError{
+			Code:    http.StatusBadRequest,
+			Message: "No problem specified.",
+		}
+	}
+
+	_, err := os.Stat(filepath.Join(dir, upload.Problem))
+	if os.IsNotExist(err) {
+		return nil, &APIError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("Problem %s does not exist.", upload.Problem),
+		}
+	}
+
+	if upload.Language == "" {
+		return nil, &APIError{
+			Code:    http.StatusBadRequest,
+			Message: "No language specified.",
+		}
+	}
+
+	if _, ok := languageInfo[upload.Language]; !ok {
+		return nil, &APIError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("Language %s is not supported.", upload.Language),
+		}
+	}
+
 	id := len(a.Jobs)
 
 	job := NewJob(id, upload)
 	a.Jobs = append(a.Jobs, job)
 	a.runningJobs[id] = job
 
-	return job
+	return job, nil
 }

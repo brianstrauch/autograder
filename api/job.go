@@ -1,11 +1,13 @@
-package pkg
+package main
 
 import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/docker/docker/api/types"
@@ -14,7 +16,10 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-const filename = "program"
+const (
+	inputFile  = "in.txt"
+	outputFile = "out.txt"
+)
 
 type Job struct {
 	ID     int    `json:"id"`
@@ -22,8 +27,7 @@ type Job struct {
 	Stdout string `json:"stdout"`
 	Stderr string `json:"stderr"`
 
-	upload      *Upload
-	containerID string
+	upload *Upload
 }
 
 func NewJob(id int, upload *Upload) *Job {
@@ -34,48 +38,66 @@ func NewJob(id int, upload *Upload) *Job {
 	}
 }
 
-// Containerize the program and run. When complete, delete the container.
+// Containerize the program and run. Then, delete the container.
 func (j *Job) run(docker *client.Client) {
 	ctx := context.Background()
 
-	con, err := docker.ContainerCreate(
-		ctx,
-		&container.Config{
-			Image: j.upload.Language,
-			Cmd:   []string{j.upload.Language, filename},
-		}, nil, nil, "")
+	info := languageInfo[j.upload.Language]
+	cfg := &container.Config{
+		Image: info.image,
+		Cmd:   info.command,
+	}
+
+	con, err := docker.ContainerCreate(ctx, cfg, nil, nil, "")
 	if err != nil {
 		j.fail(err)
 		return
 	}
-	defer j.cleanup(docker)
-	j.containerID = con.ID
+	defer cleanup(docker, con.ID)
 
 	var buf bytes.Buffer
 	w := tar.NewWriter(&buf)
 
-	if err := writeTAR(w, filename, []byte(j.upload.Text)); err != nil {
+	if err := writeTAR(w, languageInfo[j.upload.Language].filename, []byte(j.upload.Text)); err != nil {
 		j.fail(err)
 		return
 	}
+
+	dir := os.Getenv("PROBLEMS_DIR")
+	if dir == "" {
+		j.fail(fmt.Errorf(problemsDirErr))
+	}
+	path := filepath.Join(dir, j.upload.Problem, inputFile)
+
+	in, err := ioutil.ReadFile(path)
+	if err != nil {
+		j.fail(err)
+		return
+	}
+
+	if err := writeTAR(w, inputFile, in); err != nil {
+		j.fail(err)
+		return
+	}
+
 	file := bytes.NewReader(buf.Bytes())
 
-	if err := docker.CopyToContainer(ctx, j.containerID, "/", file, types.CopyToContainerOptions{}); err != nil {
+	if err := docker.CopyToContainer(ctx, con.ID, "/", file, types.CopyToContainerOptions{}); err != nil {
 		j.fail(err)
 		return
 	}
 
-	if err := docker.ContainerStart(ctx, j.containerID, types.ContainerStartOptions{}); err != nil {
+	if err := docker.ContainerStart(ctx, con.ID, types.ContainerStartOptions{}); err != nil {
 		j.fail(err)
 		return
 	}
 
-	if _, err := docker.ContainerWait(ctx, j.containerID); err != nil {
+	if _, err := docker.ContainerWait(ctx, con.ID); err != nil {
 		j.fail(err)
 		return
 	}
 
-	out, err := docker.ContainerLogs(ctx, j.containerID, types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	out, err := docker.ContainerLogs(ctx, con.ID, types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
 		j.fail(err)
 		return
@@ -105,8 +127,13 @@ func (j *Job) grade() {
 		return
 	}
 
-	file := filepath.Join("problems", j.upload.Problem, "output.txt")
-	out, err := ioutil.ReadFile(file)
+	dir := os.Getenv("PROBLEMS_DIR")
+	if dir == "" {
+		j.fail(fmt.Errorf(problemsDirErr))
+	}
+	dir = filepath.Join(dir, j.upload.Problem, outputFile)
+
+	out, err := ioutil.ReadFile(dir)
 	if err != nil {
 		j.fail(err)
 		return
@@ -119,15 +146,15 @@ func (j *Job) grade() {
 	}
 }
 
-func (j *Job) cleanup(docker *client.Client) {
+func cleanup(docker *client.Client, containerID string) {
 	ctx := context.Background()
 
-	if err := docker.ContainerRemove(ctx, j.containerID, types.ContainerRemoveOptions{}); err != nil {
+	if err := docker.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{}); err != nil {
 		log.Println(err)
 	}
 }
 
-// Create a TAR archive with one file.
+// Write a file to a TAR archive
 func writeTAR(w *tar.Writer, name string, data []byte) error {
 	header := &tar.Header{
 		Name: name,

@@ -1,7 +1,7 @@
-package errors
+package main
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestErrorHandler(t *testing.T) {
-	unsafeEndpoint := func(w http.ResponseWriter, r *http.Request) *Error {
-		return &Error{
+func TestCustomHandler(t *testing.T) {
+	unsafeEndpoint := func(w http.ResponseWriter, r *http.Request) *APIError {
+		return &APIError{
 			Code:    http.StatusInternalServerError,
 			Message: "Something bad happened.",
-			Err:     fmt.Errorf("specific error"),
+			Err:     errors.New(""),
 		}
 	}
-	handler := ErrorHandler(unsafeEndpoint)
+	handler := CustomHandler(unsafeEndpoint)
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)
@@ -25,11 +25,11 @@ func TestErrorHandler(t *testing.T) {
 
 	handler.ServeHTTP(w, r)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "{\"code\":500,\"message\":\"Something bad happened.\"}\n", w.Body.String())
+	assert.Equal(t, `{"code":500,"message":"Something bad happened."}`+"\n", w.Body.String())
 }
 
 func TestNewInternalError(t *testing.T) {
-	want := &Error{
+	want := &APIError{
 		Code:    http.StatusInternalServerError,
 		Message: "Internal Error",
 	}
