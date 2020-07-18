@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/brianstrauch/autograder/errors"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
+
+	"github.com/brianstrauch/autograder/errors"
 )
 
 type autograder struct {

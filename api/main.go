@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/brianstrauch/autograder/errors"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +10,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+
+	"github.com/brianstrauch/autograder/errors"
 )
 
 func main() {
