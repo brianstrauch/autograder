@@ -1,4 +1,4 @@
-package main
+package errors
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ func TestCustomHandler(t *testing.T) {
 			Err:     errors.New(""),
 		}
 	}
-	handler := CustomHandler(unsafeEndpoint)
+	handler := ErrorHandler(unsafeEndpoint)
 
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest("GET", "/", nil)

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/brianstrauch/autograder/errors"
 	"log"
 	"net/http"
 	"os"
@@ -12,25 +12,6 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 )
-
-type language struct {
-	image    string
-	filename string
-	command  []string
-}
-
-var languageInfo = map[string]language{
-	"sed": {
-		image:    "docker.io/library/alpine",
-		filename: "script",
-		command:  []string{"sed", "-f", "script", inputFile},
-	},
-	"python": {
-		image:    "docker.io/library/python",
-		filename: "main.py",
-		command:  []string{"python", "main.py", "<", inputFile},
-	},
-}
 
 func main() {
 	if err := pullImages(); err != nil {
@@ -41,14 +22,14 @@ func main() {
 
 	go a.ManageJobs()
 
-	routes := map[string]func(w http.ResponseWriter, r *http.Request) *APIError{
+	routes := map[string]func(w http.ResponseWriter, r *http.Request) *errors.APIError{
 		"/file": a.UploadProgramFile,
 		"/text": a.UploadProgramText,
 		"/job":  a.GetJob,
 	}
 
-	for pattern, handler := range routes {
-		http.Handle(pattern, CustomHandler(handler))
+	for pattern, function := range routes {
+		http.Handle(pattern, errors.ErrorHandler(function))
 	}
 
 	port := 1024
@@ -63,25 +44,6 @@ func main() {
 	addr := fmt.Sprintf(":%d", port)
 	log.Println("Listening at http://localhost" + addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
-}
-
-type CustomHandler func(w http.ResponseWriter, r *http.Request) *APIError
-
-func (h CustomHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.Println(r.Method, r.URL.Path)
-
-	if err := h(w, r); err != nil {
-		log.Println(err.Code, err.Message)
-		if err.Err != nil {
-			log.Println(err.Err)
-		}
-
-		w.WriteHeader(err.Code)
-		err.Err = nil
-		if err := json.NewEncoder(w).Encode(err); err != nil {
-			log.Println(err)
-		}
-	}
 }
 
 // Pull an image for each supported language.

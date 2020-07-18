@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/brianstrauch/autograder/errors"
 	"io/ioutil"
 	"log"
 	"os"
@@ -65,7 +66,7 @@ func (j *Job) run(docker *client.Client) {
 
 	dir := os.Getenv("PROBLEMS_DIR")
 	if dir == "" {
-		j.fail(fmt.Errorf(problemsDirErr))
+		j.fail(fmt.Errorf(errors.ProblemsDirErr))
 	}
 	path := filepath.Join(dir, j.upload.Problem, inputFile)
 
@@ -129,7 +130,7 @@ func (j *Job) grade() {
 
 	dir := os.Getenv("PROBLEMS_DIR")
 	if dir == "" {
-		j.fail(fmt.Errorf(problemsDirErr))
+		j.fail(fmt.Errorf(errors.ProblemsDirErr))
 	}
 	dir = filepath.Join(dir, j.upload.Problem, outputFile)
 
