@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -14,8 +13,6 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-
-	"github.com/brianstrauch/autograder/errors"
 )
 
 type Job struct {
@@ -60,10 +57,9 @@ func (j *Job) run(docker *client.Client) {
 		return
 	}
 
-	dir := os.Getenv("PROBLEMS_DIR")
-	if dir == "" {
-		err := fmt.Errorf(errors.ProblemsDirErr)
-		j.fail(err)
+	dir := defaultProblemsDir
+	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
+		dir = val
 	}
 	path := filepath.Join(dir, j.program.Problem, inputFile)
 
@@ -126,11 +122,11 @@ func (j *Job) grade() {
 		return
 	}
 
-	dir := os.Getenv("PROBLEMS_DIR")
-	if dir == "" {
-		err := fmt.Errorf(errors.ProblemsDirErr)
-		j.fail(err)
+	dir := defaultProblemsDir
+	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
+		dir = val
 	}
+
 	dir = filepath.Join(dir, j.program.Problem, outputFile)
 
 	out, err := ioutil.ReadFile(dir)

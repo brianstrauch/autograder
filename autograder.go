@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	inputFile  = "in.txt"
-	outputFile = "out.txt"
+	inputFile          = "in.txt"
+	outputFile         = "out.txt"
+	defaultProblemsDir = "problems"
 )
 
 type autograder struct {
@@ -157,16 +158,16 @@ func (a *autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.APIE
 
 // Validate and run a job in a goroutine
 func (a *autograder) startJob(program *Program) (*Job, *errors.APIError) {
-	dir := os.Getenv("PROBLEMS_DIR")
-	if dir == "" {
-		return nil, errors.NewInternalError(fmt.Errorf(errors.ProblemsDirErr))
-	}
-
 	if program.Problem == "" {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
 			Message: "No problem specified.",
 		}
+	}
+
+	dir := defaultProblemsDir
+	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
+		dir = val
 	}
 
 	if _, err := os.Stat(filepath.Join(dir, program.Problem)); os.IsNotExist(err) {

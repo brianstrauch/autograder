@@ -1,11 +1,8 @@
-include .env
-export
+run: build
+	bin/autograder
 
 build:
 	go build -o bin/autograder
-
-run: build
-	bin/autograder
 
 clean:
 	rm -r bin
