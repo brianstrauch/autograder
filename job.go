@@ -18,25 +18,20 @@ import (
 	"github.com/brianstrauch/autograder/errors"
 )
 
-const (
-	inputFile  = "in.txt"
-	outputFile = "out.txt"
-)
-
 type Job struct {
 	ID     int    `json:"id"`
 	Status string `json:"status"`
 	Stdout string `json:"stdout"`
 	Stderr string `json:"stderr"`
 
-	upload *Upload
+	program *Program
 }
 
-func NewJob(id int, upload *Upload) *Job {
+func NewJob(id int, upload *Program) *Job {
 	return &Job{
-		ID:     id,
-		Status: "READY",
-		upload: upload,
+		ID:      id,
+		Status:  "READY",
+		program: upload,
 	}
 }
 
@@ -44,7 +39,7 @@ func NewJob(id int, upload *Upload) *Job {
 func (j *Job) run(docker *client.Client) {
 	ctx := context.Background()
 
-	info := languageInfo[j.upload.Language]
+	info := languages[j.program.Language]
 	cfg := &container.Config{
 		Image: info.image,
 		Cmd:   info.command,
@@ -60,16 +55,17 @@ func (j *Job) run(docker *client.Client) {
 	var buf bytes.Buffer
 	w := tar.NewWriter(&buf)
 
-	if err := writeTAR(w, languageInfo[j.upload.Language].filename, []byte(j.upload.Text)); err != nil {
+	if err := writeTAR(w, languages[j.program.Language].filename, []byte(j.program.Text)); err != nil {
 		j.fail(err)
 		return
 	}
 
 	dir := os.Getenv("PROBLEMS_DIR")
 	if dir == "" {
-		j.fail(fmt.Errorf(errors.ProblemsDirErr))
+		err := fmt.Errorf(errors.ProblemsDirErr)
+		j.fail(err)
 	}
-	path := filepath.Join(dir, j.upload.Problem, inputFile)
+	path := filepath.Join(dir, j.program.Problem, inputFile)
 
 	in, err := ioutil.ReadFile(path)
 	if err != nil {
@@ -117,6 +113,7 @@ func (j *Job) run(docker *client.Client) {
 	j.grade()
 }
 
+// Should never happen, but if it does, exit gracefully.
 func (j *Job) fail(err error) {
 	log.Printf("JOB %d FAILED: %s\n", j.ID, err)
 	j.Status = "ERROR"
@@ -131,9 +128,10 @@ func (j *Job) grade() {
 
 	dir := os.Getenv("PROBLEMS_DIR")
 	if dir == "" {
-		j.fail(fmt.Errorf(errors.ProblemsDirErr))
+		err := fmt.Errorf(errors.ProblemsDirErr)
+		j.fail(err)
 	}
-	dir = filepath.Join(dir, j.upload.Problem, outputFile)
+	dir = filepath.Join(dir, j.program.Problem, outputFile)
 
 	out, err := ioutil.ReadFile(dir)
 	if err != nil {
@@ -148,6 +146,7 @@ func (j *Job) grade() {
 	}
 }
 
+// Remove the old container
 func cleanup(docker *client.Client, containerID string) {
 	ctx := context.Background()
 

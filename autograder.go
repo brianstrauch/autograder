@@ -8,51 +8,41 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/docker/docker/client"
 
 	"github.com/brianstrauch/autograder/errors"
 )
 
+const (
+	inputFile  = "in.txt"
+	outputFile = "out.txt"
+)
+
 type autograder struct {
-	Jobs        []*Job
-	runningJobs map[int]*Job
+	jobs   []*Job
+	docker *client.Client
 }
 
-type language struct {
-	image    string
-	filename string
-	command  []string
-}
-
-var languageInfo = map[string]language{
-	"sed": {
-		image:    "docker.io/library/alpine",
-		filename: "script",
-		command:  []string{"sed", "-f", "script", inputFile},
-	},
-	"python": {
-		image:    "docker.io/library/python",
-		filename: "main.py",
-		command:  []string{"python", "main.py", "<", inputFile},
-	},
-}
-
-type Upload struct {
+type Program struct {
 	Problem  string `json:"problem"`
 	Language string `json:"language"`
 	Text     string `json:"text"`
 }
 
 func NewAutograder() *autograder {
+	docker, err := client.NewEnvClient()
+	if err != nil {
+		panic(err)
+	}
+
 	return &autograder{
-		runningJobs: make(map[int]*Job),
+		docker: docker,
 	}
 }
 
-// Upload a program file, create a job, and add to queue.
-func (a *autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *errors.APIError {
+// Upload a program for grading as a multipart form
+func (a *autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *errors.APIError {
 	if err := r.ParseForm(); err != nil {
 		return errors.NewInternalError(err)
 	}
@@ -77,7 +67,7 @@ func (a *autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		return &errors.APIError{
 			Code:    http.StatusBadRequest,
-			Message: "Please upload a program.",
+			Message: "Please program a program.",
 			Err:     err,
 		}
 	}
@@ -95,13 +85,13 @@ func (a *autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 		return errors.NewInternalError(err)
 	}
 
-	upload := &Upload{
+	upload := &Program{
 		Problem:  problem,
 		Language: language,
 		Text:     string(data),
 	}
 
-	job, apiErr := a.queueJob(upload)
+	job, apiErr := a.startJob(upload)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -113,13 +103,14 @@ func (a *autograder) UploadProgramFile(w http.ResponseWriter, r *http.Request) *
 	return nil
 }
 
-func (a *autograder) UploadProgramText(w http.ResponseWriter, r *http.Request) *errors.APIError {
-	upload := new(Upload)
-	if err := json.NewDecoder(r.Body).Decode(&upload); err != nil {
+// Upload a program for grading in JSON format
+func (a *autograder) PostProgram(w http.ResponseWriter, r *http.Request) *errors.APIError {
+	program := new(Program)
+	if err := json.NewDecoder(r.Body).Decode(&program); err != nil {
 		return errors.NewInternalError(err)
 	}
 
-	job, apiErr := a.queueJob(upload)
+	job, apiErr := a.startJob(program)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -131,7 +122,7 @@ func (a *autograder) UploadProgramText(w http.ResponseWriter, r *http.Request) *
 	return nil
 }
 
-// Get a running job from its ID.
+// Check the status of a job
 func (a *autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.APIError {
 	val := r.URL.Query().Get("id")
 	if val == "" {
@@ -150,82 +141,58 @@ func (a *autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.APIE
 		}
 	}
 
-	if id < 0 || id >= len(a.Jobs) {
+	if id < 0 || id >= len(a.jobs) {
 		return &errors.APIError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("Job %d does not exist.", id),
 		}
 	}
 
-	if err := json.NewEncoder(w).Encode(a.Jobs[id]); err != nil {
+	if err := json.NewEncoder(w).Encode(a.jobs[id]); err != nil {
 		return errors.NewInternalError(err)
 	}
 
 	return nil
 }
 
-// Keep track of running jobs, refresh once per second.
-func (a *autograder) ManageJobs() {
-	docker, err := client.NewEnvClient()
-	if err != nil {
-		panic(err)
-	}
-
-	for _ = range time.NewTicker(time.Second).C {
-		for id, job := range a.runningJobs {
-			switch job.Status {
-			case "READY":
-				job.Status = "RUNNING"
-				go job.run(docker)
-			case "ALIVE":
-				continue
-			case "RIGHT", "WRONG", "ERROR":
-				delete(a.runningJobs, id)
-			}
-		}
-	}
-}
-
-func (a *autograder) queueJob(upload *Upload) (*Job, *errors.APIError) {
+// Validate and run a job in a goroutine
+func (a *autograder) startJob(program *Program) (*Job, *errors.APIError) {
 	dir := os.Getenv("PROBLEMS_DIR")
 	if dir == "" {
 		return nil, errors.NewInternalError(fmt.Errorf(errors.ProblemsDirErr))
 	}
 
-	if upload.Problem == "" {
+	if program.Problem == "" {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
 			Message: "No problem specified.",
 		}
 	}
 
-	_, err := os.Stat(filepath.Join(dir, upload.Problem))
-	if os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, program.Problem)); os.IsNotExist(err) {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("Problem %s does not exist.", upload.Problem),
+			Message: fmt.Sprintf("Problem %s does not exist.", program.Problem),
 		}
 	}
 
-	if upload.Language == "" {
+	if program.Language == "" {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
 			Message: "No language specified.",
 		}
 	}
 
-	if _, ok := languageInfo[upload.Language]; !ok {
+	if _, ok := languages[program.Language]; !ok {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("Language %s is not supported.", upload.Language),
+			Message: fmt.Sprintf("Language %s is not supported.", program.Language),
 		}
 	}
 
-	id := len(a.Jobs)
-
-	job := NewJob(id, upload)
-	a.Jobs = append(a.Jobs, job)
-	a.runningJobs[id] = job
+	job := NewJob(len(a.jobs), program)
+	a.jobs = append(a.jobs, job)
+	go job.run(a.docker)
 
 	return job, nil
 }

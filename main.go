@@ -1,15 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
-
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 
 	"github.com/brianstrauch/autograder/errors"
 )
@@ -21,11 +17,9 @@ func main() {
 
 	a := NewAutograder()
 
-	go a.ManageJobs()
-
 	routes := map[string]func(w http.ResponseWriter, r *http.Request) *errors.APIError{
-		"/file": a.UploadProgramFile,
-		"/text": a.UploadProgramText,
+		"/text": a.PostProgram,
+		"/file": a.PostProgramFile,
 		"/job":  a.GetJob,
 	}
 
@@ -45,22 +39,4 @@ func main() {
 	addr := fmt.Sprintf(":%d", port)
 	log.Println("Listening at http://localhost" + addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
-}
-
-// Pull an image for each supported language.
-func pullImages() error {
-	ctx := context.Background()
-
-	docker, err := client.NewEnvClient()
-	if err != nil {
-		return err
-	}
-
-	for _, info := range languageInfo {
-		if _, err := docker.ImagePull(ctx, info.image, types.ImagePullOptions{}); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

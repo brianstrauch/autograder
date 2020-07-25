@@ -4,9 +4,9 @@ Upload programs for grading. The autograder will run them inside a container and
 
 ## Local Setup
 
-1. Download and install Docker from https://www.docker.com/products/docker-desktop.
-2. Start Docker.
-3. Use `make run` to start the API on http://localhost:1024.
+1. Download [Docker](https://www.docker.com/products/docker-desktop), install, and start
+2. Optionally create a `.env` file to set the `PORT` or `PROBLEMS_DIR`
+2. Use `make run` to start the API on http://localhost:1024
 
 ## Usage
 
@@ -29,7 +29,7 @@ Upload programs for grading. The autograder will run them inside a container and
             <input type="submit" />
         </form>
         ```
-2. Check the program's status (updated every second)
+2. Check the program's status
     1. `GET /job?id=0`
         ```
         {
