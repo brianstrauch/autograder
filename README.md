@@ -1,6 +1,6 @@
 # Autograder API
 
-Upload programs for grading. The autograder will run them inside a container and compare their output.
+Upload programs for grading. The autograder will run them inside a container and grade their output.
 
 ## Local Setup
 
