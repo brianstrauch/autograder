@@ -86,13 +86,13 @@ func (a *autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *er
 		return errors.NewInternalError(err)
 	}
 
-	upload := &Program{
+	program := &Program{
 		Problem:  problem,
 		Language: language,
 		Text:     string(data),
 	}
 
-	job, apiErr := a.startJob(upload)
+	job, apiErr := a.startJob(program)
 	if apiErr != nil {
 		return apiErr
 	}

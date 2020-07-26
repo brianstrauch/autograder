@@ -24,11 +24,11 @@ type Job struct {
 	program *Program
 }
 
-func NewJob(id int, upload *Program) *Job {
+func NewJob(id int, program *Program) *Job {
 	return &Job{
 		ID:      id,
 		Status:  "READY",
-		program: upload,
+		program: program,
 	}
 }
 
