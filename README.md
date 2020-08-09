@@ -29,7 +29,7 @@ Upload programs for grading. The autograder will run them inside a container and
             <input type="submit" />
         </form>
         ```
-2. Check the program's status
+2. Check the status of each test case
     1. `GET /job?id=0`
         ```
         {
