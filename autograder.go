@@ -14,36 +14,24 @@ import (
 	"github.com/brianstrauch/autograder/errors"
 )
 
-const (
-	inputFile          = "in.txt"
-	outputFile         = "out.txt"
-	defaultProblemsDir = "problems"
-)
-
-type autograder struct {
+type Autograder struct {
 	jobs   []*Job
 	docker *client.Client
 }
 
-type Program struct {
-	Problem  string `json:"problem"`
-	Language string `json:"language"`
-	Text     string `json:"text"`
-}
-
-func NewAutograder() *autograder {
+func NewAutograder() *Autograder {
 	docker, err := client.NewEnvClient()
 	if err != nil {
 		panic(err)
 	}
 
-	return &autograder{
+	return &Autograder{
 		docker: docker,
 	}
 }
 
 // Upload a program for grading as a multipart form
-func (a *autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *errors.APIError {
+func (a *Autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *errors.APIError {
 	if err := r.ParseForm(); err != nil {
 		return errors.NewInternalError(err)
 	}
@@ -92,12 +80,12 @@ func (a *autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *er
 		Text:     string(data),
 	}
 
-	job, apiErr := a.startJob(program)
+	jobs, apiErr := a.startJobs(program)
 	if apiErr != nil {
 		return apiErr
 	}
 
-	if err := json.NewEncoder(w).Encode(job); err != nil {
+	if err := json.NewEncoder(w).Encode(jobs); err != nil {
 		return errors.NewInternalError(err)
 	}
 
@@ -105,18 +93,18 @@ func (a *autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *er
 }
 
 // Upload a program for grading in JSON format
-func (a *autograder) PostProgram(w http.ResponseWriter, r *http.Request) *errors.APIError {
+func (a *Autograder) PostProgram(w http.ResponseWriter, r *http.Request) *errors.APIError {
 	program := new(Program)
 	if err := json.NewDecoder(r.Body).Decode(&program); err != nil {
 		return errors.NewInternalError(err)
 	}
 
-	job, apiErr := a.startJob(program)
+	jobs, apiErr := a.startJobs(program)
 	if apiErr != nil {
 		return apiErr
 	}
 
-	if err := json.NewEncoder(w).Encode(job); err != nil {
+	if err := json.NewEncoder(w).Encode(jobs); err != nil {
 		return errors.NewInternalError(err)
 	}
 
@@ -124,7 +112,7 @@ func (a *autograder) PostProgram(w http.ResponseWriter, r *http.Request) *errors
 }
 
 // Check the status of a job
-func (a *autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.APIError {
+func (a *Autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.APIError {
 	val := r.URL.Query().Get("id")
 	if val == "" {
 		return &errors.APIError{
@@ -157,7 +145,7 @@ func (a *autograder) GetJob(w http.ResponseWriter, r *http.Request) *errors.APIE
 }
 
 // Validate and run a job in a goroutine
-func (a *autograder) startJob(program *Program) (*Job, *errors.APIError) {
+func (a *Autograder) startJobs(program *Program) ([]*Job, *errors.APIError) {
 	if program.Problem == "" {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
@@ -165,12 +153,9 @@ func (a *autograder) startJob(program *Program) (*Job, *errors.APIError) {
 		}
 	}
 
-	dir := defaultProblemsDir
-	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
-		dir = val
-	}
+	dir := filepath.Join(getProblemsDir(), program.Problem)
 
-	if _, err := os.Stat(filepath.Join(dir, program.Problem)); os.IsNotExist(err) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil, &errors.APIError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("Problem %s does not exist.", program.Problem),
@@ -191,9 +176,24 @@ func (a *autograder) startJob(program *Program) (*Job, *errors.APIError) {
 		}
 	}
 
-	job := NewJob(len(a.jobs), program)
-	a.jobs = append(a.jobs, job)
-	go job.run(a.docker)
+	files, err := filepath.Glob(filepath.Join(dir, "*.in"))
+	if err != nil {
+		return nil, errors.NewInternalError(err)
+	}
 
-	return job, nil
+	jobs := make([]*Job, len(files))
+	for i := range jobs {
+		jobs[i] = NewJob(len(a.jobs), program, i)
+		a.jobs = append(a.jobs, jobs[i])
+		go jobs[i].run(a.docker)
+	}
+
+	return jobs, nil
+}
+
+func getProblemsDir() string {
+	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
+		return val
+	}
+	return "problems"
 }

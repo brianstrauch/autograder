@@ -11,7 +11,7 @@ var languages = map[string]language{
 	"python": {
 		image:    "docker.io/library/python",
 		filename: "main.py",
-		command:  []string{"python", "main.py", "<", inputFile},
+		command:  []string{"python", "main.py"},
 	},
 }
 

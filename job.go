@@ -4,9 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"path/filepath"
 
 	"github.com/docker/docker/api/types"
@@ -21,28 +21,35 @@ type Job struct {
 	Stdout string `json:"stdout"`
 	Stderr string `json:"stderr"`
 
-	program *Program
+	program    *Program
+	inputFile  string
+	outputFile string
 }
 
-func NewJob(id int, program *Program) *Job {
+func NewJob(id int, program *Program, part int) *Job {
 	return &Job{
-		ID:      id,
-		Status:  "READY",
-		program: program,
+		ID:     id,
+		Status: "READY",
+
+		program:    program,
+		inputFile:  fmt.Sprintf("%d.in", part),
+		outputFile: fmt.Sprintf("%d.out", part),
 	}
 }
 
 // Containerize the program and run. Then, delete the container.
 func (j *Job) run(docker *client.Client) {
+	info := languages[j.program.Language]
+
 	ctx := context.Background()
 
-	info := languages[j.program.Language]
-	cfg := &container.Config{
-		Image: info.image,
-		Cmd:   info.command,
+	config := &container.Config{
+		Image:       info.image,
+		Cmd:         info.command,
+		AttachStdin: true,
+		OpenStdin:   true,
 	}
-
-	con, err := docker.ContainerCreate(ctx, cfg, nil, nil, "")
+	con, err := docker.ContainerCreate(ctx, config, nil, nil, "")
 	if err != nil {
 		j.fail(err)
 		return
@@ -57,31 +64,30 @@ func (j *Job) run(docker *client.Client) {
 		return
 	}
 
-	dir := defaultProblemsDir
-	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
-		dir = val
-	}
-	path := filepath.Join(dir, j.program.Problem, inputFile)
-
-	in, err := ioutil.ReadFile(path)
-	if err != nil {
-		j.fail(err)
-		return
-	}
-
-	if err := writeTAR(w, inputFile, in); err != nil {
-		j.fail(err)
-		return
-	}
-
 	file := bytes.NewReader(buf.Bytes())
-
 	if err := docker.CopyToContainer(ctx, con.ID, "/", file, types.CopyToContainerOptions{}); err != nil {
 		j.fail(err)
 		return
 	}
 
 	if err := docker.ContainerStart(ctx, con.ID, types.ContainerStartOptions{}); err != nil {
+		j.fail(err)
+		return
+	}
+
+	res, err := docker.ContainerAttach(ctx, con.ID, types.ContainerAttachOptions{Stdin: true, Stream: true})
+	if err != nil {
+		j.fail(err)
+		return
+	}
+	defer res.Close()
+
+	in, err := ioutil.ReadFile(filepath.Join(getProblemsDir(), j.program.Problem, j.inputFile))
+	if err != nil {
+		j.fail(err)
+		return
+	}
+	if _, err := res.Conn.Write(in); err != nil {
 		j.fail(err)
 		return
 	}
@@ -122,14 +128,7 @@ func (j *Job) grade() {
 		return
 	}
 
-	dir := defaultProblemsDir
-	if val, ok := os.LookupEnv("PROBLEMS_DIR"); ok {
-		dir = val
-	}
-
-	dir = filepath.Join(dir, j.program.Problem, outputFile)
-
-	out, err := ioutil.ReadFile(dir)
+	out, err := ioutil.ReadFile(filepath.Join(getProblemsDir(), j.program.Problem, j.outputFile))
 	if err != nil {
 		j.fail(err)
 		return

@@ -14,10 +14,8 @@ func TestGradeRight(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	j := &Job{
-		program: &Program{
-			Problem: "hello-world",
-		},
-		Stdout: "Hello, World!",
+		program: &Program{Problem: "hello-world"},
+		Stdout:  "Hello, World!",
 	}
 	j.grade()
 
@@ -29,24 +27,22 @@ func TestGradeWrong(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	j := &Job{
-		program: &Program{
-			Problem: "hello-world",
-		},
-		Stdout: "Hello, World.",
+		program: &Program{Problem: "hello-world"},
+		Stdout:  "Hello, World.",
 	}
 	j.grade()
 
 	require.Equal(t, j.Status, "WRONG")
 }
 
-func mockProblemsDir(t *testing.T, problem, output string) string {
+func mockProblemsDir(t *testing.T, problem string, output string) string {
 	dir := os.TempDir()
 	require.NoError(t, os.Setenv("PROBLEMS_DIR", dir))
 
 	problemDir := filepath.Join(dir, problem)
 	require.NoError(t, os.MkdirAll(problemDir, 0777))
 
-	file := filepath.Join(problemDir, outputFile)
+	file := filepath.Join(problemDir, "0.out")
 	require.NoError(t, ioutil.WriteFile(file, []byte(output), 0644))
 
 	return dir
