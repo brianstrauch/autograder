@@ -26,8 +26,7 @@ func main() {
 	a := NewAutograder()
 
 	routes := map[string]func(w http.ResponseWriter, r *http.Request) *errors.APIError{
-		"/text": a.PostProgram,
-		"/file": a.PostProgramFile,
+		"/upload": a.PostProgram,
 		"/job":  a.GetJob,
 	}
 

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,68 +27,6 @@ func NewAutograder() *Autograder {
 	return &Autograder{
 		docker: docker,
 	}
-}
-
-// Upload a program for grading as a multipart form
-func (a *Autograder) PostProgramFile(w http.ResponseWriter, r *http.Request) *errors.APIError {
-	if err := r.ParseForm(); err != nil {
-		return errors.NewInternalError(err)
-	}
-
-	problem := r.FormValue("problem")
-	if problem == "" {
-		return &errors.APIError{
-			Code:    http.StatusBadRequest,
-			Message: "No problem provided.",
-		}
-	}
-
-	language := r.FormValue("language")
-	if language == "" {
-		return &errors.APIError{
-			Code:    http.StatusBadRequest,
-			Message: "No language provided.",
-		}
-	}
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		return &errors.APIError{
-			Code:    http.StatusBadRequest,
-			Message: "Please program a program.",
-			Err:     err,
-		}
-	}
-
-	const fileSizeLimit = 1024
-	if header.Size > fileSizeLimit {
-		return &errors.APIError{
-			Code:    http.StatusBadRequest,
-			Message: "File is larger than 1MB.",
-		}
-	}
-
-	data, err := ioutil.ReadAll(file)
-	if err != nil {
-		return errors.NewInternalError(err)
-	}
-
-	program := &Program{
-		Problem:  problem,
-		Language: language,
-		Text:     string(data),
-	}
-
-	jobs, apiErr := a.startJobs(program)
-	if apiErr != nil {
-		return apiErr
-	}
-
-	if err := json.NewEncoder(w).Encode(jobs); err != nil {
-		return errors.NewInternalError(err)
-	}
-
-	return nil
 }
 
 // Upload a program for grading in JSON format
